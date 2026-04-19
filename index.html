@@ -18,13 +18,18 @@
   header p { font-size: 0.68rem; color: var(--muted); margin-top: .3rem; letter-spacing: .08em; text-transform: uppercase; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 800px; padding: 1.2rem; margin-bottom: 1rem; }
 
-  /* Live subtitle display */
-  #sub-box { min-height: 100px; font-family: 'Noto Sans Telugu', sans-serif; font-size: clamp(1.4rem, 3.5vw, 2.2rem); line-height: 1.7; word-break: break-word; }
-  .interim-text { color: var(--interim); font-style: italic; }
-  .final-flash  { color: var(--text); }
-  .placeholder  { color: var(--muted); font-size: 0.9rem; font-family: 'JetBrains Mono', monospace; }
+  #sub-box {
+    min-height: 100px;
+    font-family: 'Noto Sans Telugu', sans-serif;
+    font-size: clamp(1.4rem, 3.5vw, 2.2rem);
+    line-height: 1.8;
+    word-break: break-word;
+  }
+  #confirmed    { color: var(--text); }
+  #live-word    { color: var(--interim); font-style: italic; }
   .cursor { display: inline-block; width: 2px; height: 1.1em; background: var(--accent); margin-left: 3px; vertical-align: text-bottom; animation: blink 1s step-end infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .placeholder { color: var(--muted); font-size: 0.9rem; font-family: 'JetBrains Mono', monospace; }
 
   .status-row { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; font-size: .7rem; color: var(--muted); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
@@ -35,18 +40,11 @@
   .controls { display: flex; gap: .7rem; flex-wrap: wrap; align-items: center; }
   .btn { display: inline-flex; align-items: center; gap: 7px; padding: .5rem 1.2rem; border-radius: 8px; border: 1.5px solid var(--border); background: transparent; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: .76rem; font-weight: 500; cursor: pointer; transition: all .15s; }
   .btn:disabled { opacity: .35; cursor: not-allowed; }
-  .btn.go  { border-color: var(--green);  color: var(--green); }
-  .btn.go:not(:disabled):hover  { background: rgba(30,204,150,.08); }
+  .btn.go  { border-color: var(--green); color: var(--green); }
+  .btn.go:not(:disabled):hover { background: rgba(30,204,150,.08); }
   .btn.end { border-color: var(--danger); color: var(--danger); }
   .btn.end:not(:disabled):hover { background: rgba(224,92,92,.08); }
   .btn.clr { border-color: var(--border); color: var(--muted); font-size: .7rem; }
-
-  /* History — only complete sentences */
-  #hist-card { display: none; }
-  .hist-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .6rem; }
-  #hist-list { display: flex; flex-direction: column; gap: .4rem; max-height: 220px; overflow-y: auto; }
-  .hitem { font-family: 'Noto Sans Telugu', sans-serif; font-size: 1rem; color: var(--text); padding: .45rem .7rem; border-left: 2px solid var(--accent); line-height: 1.5; }
-
   .warn-box { font-size: .7rem; color: #EF9F27; background: rgba(239,159,39,.08); border: 1px solid rgba(239,159,39,.25); border-radius: 8px; padding: .6rem .9rem; margin-top: .8rem; line-height: 1.7; display: none; }
 </style>
 </head>
@@ -54,19 +52,19 @@
 
 <header>
   <h1>తెలుగు లైవ్ సబ్‌టైటిల్స్</h1>
-  <p>Complete sentences only · No duplicates</p>
+  <p>Append-only · Zero duplicates · Mobile ready</p>
 </header>
 
-<!-- Subtitle display -->
 <div class="card">
-  <div id="sub-box"><span class="placeholder">Click Start and speak in Telugu...</span></div>
+  <div id="sub-box">
+    <span class="placeholder">Click Start and speak in Telugu...</span>
+  </div>
   <div class="status-row">
     <div class="dot" id="sdot"></div>
     <span id="stext">Ready</span>
   </div>
 </div>
 
-<!-- Controls -->
 <div class="card">
   <div class="controls">
     <button class="btn go"  id="btnStart" onclick="startRec()">▶ Start</button>
@@ -76,141 +74,138 @@
   <div class="warn-box" id="warnBox"></div>
 </div>
 
-<!-- History — only final complete sentences appear here -->
-<div class="card" id="hist-card">
-  <div class="hist-label">Transcript history</div>
-  <div id="hist-list"></div>
-</div>
-
 <script>
 let recog   = null;
 let running = false;
 
-// ── The key fix ───────────────────────────────────────────────────────────────
-// latestTranscript tracks the LONGEST version of what's being said.
-// We only commit it to history when it STOPS growing (silence detected).
-let latestTranscript = '';   // the current growing sentence
-let commitTimer      = null; // fires after silence to commit the sentence
-let lastCommitted    = '';   // the last thing we sent to history (dedup guard)
-
-const SILENCE_MS = 1200; // commit after 1.2s of no new words (tune if needed)
+// ── The single source of truth ────────────────────────────────────────────────
+// confirmedText  = everything locked in (never changes, only grows)
+// prevRaw        = the full raw transcript from last event (to diff against)
+let confirmedText = '';
+let prevRaw       = '';
 
 function setStatus(msg, cls) {
   document.getElementById('stext').textContent = msg;
   document.getElementById('sdot').className = 'dot' + (cls ? ' ' + cls : '');
 }
 
-function renderInterim(text) {
+// ── Core rendering ────────────────────────────────────────────────────────────
+// confirmed = solid white text (locked in)
+// interim   = grey italic (what's being spoken right now)
+function render(interimText) {
   const box = document.getElementById('sub-box');
-  if (!text) {
+
+  if (!confirmedText && !interimText) {
     box.innerHTML = '<span class="placeholder">Speak in Telugu...</span>';
     return;
   }
-  box.innerHTML = `<span class="interim-text">${text}</span><span class="cursor"></span>`;
+
+  const sep = confirmedText && interimText ? ' ' : '';
+  box.innerHTML =
+    (confirmedText ? `<span id="confirmed">${confirmedText}</span>` : '') +
+    (interimText   ? `${sep}<span id="live-word">${interimText}</span>` : '') +
+    (running       ? '<span class="cursor"></span>' : '');
 }
 
-function commitSentence(text) {
-  text = text.trim();
-  if (!text) return;
-
-  // Only commit if it's different from last committed (block duplicates)
-  if (text === lastCommitted) return;
-  lastCommitted = text;
-
-  // Flash as final in subtitle box
-  const box = document.getElementById('sub-box');
-  box.innerHTML = `<span class="final-flash">${text}</span>`;
-
-  // After 2s, clear subtitle box ready for next sentence
-  setTimeout(() => {
-    if (running) renderInterim('');
-  }, 2000);
-
-  // Add ONLY this complete sentence to history
-  const card = document.getElementById('hist-card');
-  const list = document.getElementById('hist-list');
-  card.style.display = 'block';
-
-  const div = document.createElement('div');
-  div.className = 'hitem';
-  div.textContent = text;
-  list.appendChild(div);
-  list.scrollTop = list.scrollHeight;
-
-  // Keep last 30 sentences
-  while (list.children.length > 30) list.removeChild(list.firstChild);
-
-  latestTranscript = ''; // reset for next sentence
+// ── Diff helper ───────────────────────────────────────────────────────────────
+// Given the old full string and the new full string,
+// return only the NEW suffix that was added.
+// e.g. old="రేపు నేను"  new="రేపు నేను విజయవాడ"  → "విజయవాడ"
+function getNewSuffix(oldText, newText) {
+  oldText = oldText.trim();
+  newText = newText.trim();
+  if (!oldText) return newText;
+  if (newText.startsWith(oldText)) {
+    return newText.slice(oldText.length).trim();
+  }
+  // Fallback: find longest common prefix word by word
+  const oldW = oldText.split(/\s+/);
+  const newW = newText.split(/\s+/);
+  let i = 0;
+  while (i < oldW.length && i < newW.length && oldW[i] === newW[i]) i++;
+  return newW.slice(i).join(' ').trim();
 }
 
-function scheduleCommit(text) {
-  // Every time new words arrive, reset the silence timer
-  if (commitTimer) clearTimeout(commitTimer);
-  commitTimer = setTimeout(() => commitSentence(text), SILENCE_MS);
-}
-
+// ── Recognition logic ─────────────────────────────────────────────────────────
 function startRec() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    document.getElementById('warnBox').style.display = 'block';
-    document.getElementById('warnBox').textContent = 'Web Speech API not supported. Use Chrome or Edge.';
+    const w = document.getElementById('warnBox');
+    w.style.display = 'block';
+    w.textContent = 'Web Speech API not supported. Use Chrome or Edge.';
     return;
   }
 
   recog = new SR();
-  recog.lang           = 'te-IN';
-  recog.continuous     = true;
-  recog.interimResults = true;
+  recog.lang            = 'te-IN';
+  recog.continuous      = true;
+  recog.interimResults  = true;
   recog.maxAlternatives = 1;
 
   recog.onstart = () => {
     running = true;
+    prevRaw = '';
     setStatus('Listening — speak in Telugu', 'live');
     document.getElementById('btnStart').disabled = true;
     document.getElementById('btnStop').disabled  = false;
-    renderInterim('');
+    render('');
   };
 
   recog.onresult = (e) => {
-    // Build the longest transcript seen so far across all results
-    let fullText = '';
+    // Build the complete raw transcript from ALL results so far
+    let rawFull = '';
+    let interimPart = '';
+
     for (let i = 0; i < e.results.length; i++) {
-      fullText += e.results[i][0].transcript;
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        rawFull += (rawFull ? ' ' : '') + t.trim();
+      } else {
+        interimPart += t; // currently being spoken
+      }
     }
-    fullText = fullText.trim();
+    rawFull = rawFull.trim();
+    interimPart = interimPart.trim();
 
-    // ── The core fix ──────────────────────────────────────────────────────
-    // Always keep the LONGEST version of the transcript.
-    // Mobile sends "రేపు", then "రేపు నేను", then "రేపు నేను విజయవాడ"...
-    // We track the longest and only commit after silence, not on every event.
-    if (fullText.length >= latestTranscript.length) {
-      latestTranscript = fullText;
+    // ── KEY LOGIC ─────────────────────────────────────────────────────────
+    // rawFull grows like:
+    //   "రేపు" → "రేపు నేను" → "రేపు నేను విజయవాడ వెళుతున్నాను"
+    //
+    // Instead of replacing confirmedText with rawFull (causes repeats),
+    // we find ONLY the new words added since last event and APPEND them.
+
+    if (rawFull.length > prevRaw.length) {
+      const newWords = getNewSuffix(prevRaw, rawFull);
+      if (newWords) {
+        confirmedText += (confirmedText ? ' ' : '') + newWords;
+      }
+      prevRaw = rawFull;
     }
 
-    // Show current state as interim (grey, live)
-    renderInterim(latestTranscript);
-
-    // Schedule commit after silence — resets every time new words arrive
-    scheduleCommit(latestTranscript);
+    // Show interim (currently being spoken) as grey text after confirmed
+    render(interimPart);
   };
 
   recog.onerror = (e) => {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
     setStatus('Error: ' + e.error, 'error');
-    const box = document.getElementById('warnBox');
-    box.style.display = 'block';
-    box.textContent = e.error === 'not-allowed'
+    const w = document.getElementById('warnBox');
+    w.style.display = 'block';
+    w.textContent = e.error === 'not-allowed'
       ? 'Microphone access denied. Allow mic in browser settings.'
-      : 'Error: ' + e.error + '. Try refreshing.';
+      : 'Error: ' + e.error;
   };
 
   recog.onend = () => {
     if (running) {
-      setTimeout(() => { if (running) { try { recog.start(); } catch(_){} } }, 250);
+      // On restart, reset prevRaw so we don't re-diff against stale state
+      prevRaw = '';
+      setTimeout(() => { if (running) { try { recog.start(); } catch(_){} } }, 200);
     } else {
       document.getElementById('btnStart').disabled = false;
       document.getElementById('btnStop').disabled  = true;
       setStatus('Stopped', '');
+      render('');
     }
   };
 
@@ -219,25 +214,18 @@ function startRec() {
 
 function stopRec() {
   running = false;
-  if (commitTimer) clearTimeout(commitTimer);
-
-  // Commit whatever was in progress when stopped
-  if (latestTranscript) commitSentence(latestTranscript);
-
   if (recog) { recog.onend = null; recog.stop(); recog = null; }
   document.getElementById('btnStart').disabled = false;
   document.getElementById('btnStop').disabled  = true;
   setStatus('Stopped', '');
+  render('');
 }
 
 function clearAll() {
-  latestTranscript = '';
-  lastCommitted    = '';
-  if (commitTimer) clearTimeout(commitTimer);
-  document.getElementById('hist-card').style.display = 'none';
-  document.getElementById('hist-list').innerHTML = '';
+  confirmedText = '';
+  prevRaw       = '';
   document.getElementById('warnBox').style.display = 'none';
-  document.getElementById('sub-box').innerHTML = '<span class="placeholder">Speak in Telugu...</span>';
+  render('');
 }
 </script>
 </body>
