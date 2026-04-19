@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Telugu Live Subtitles</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Telugu:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0d0f14;
+    --surface: #161a23;
+    --border:  #252b38;
+    --accent:  #4f8ef7;
+    --green:   #1ecc96;
+    --danger:  #e05c5c;
+    --text:    #e8ecf5;
+    --muted:   #6b7896;
+    --interim: #8fa3d0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.5rem 1rem;
+  }
+
+  header { text-align: center; margin-bottom: 1.5rem; }
+  header h1 {
+    font-family: 'Noto Sans Telugu', sans-serif;
+    font-size: clamp(1.2rem, 4vw, 1.8rem);
+    font-weight: 600;
+  }
+  header p { font-size: 0.68rem; color: var(--muted); margin-top: .3rem; letter-spacing: .08em; text-transform: uppercase; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 800px;
+    padding: 1.2rem;
+    margin-bottom: 1rem;
+  }
+
+  #sub-box {
+    min-height: 110px;
+    font-family: 'Noto Sans Telugu', sans-serif;
+    font-size: clamp(1.3rem, 3.5vw, 2rem);
+    line-height: 1.7;
+    word-break: break-word;
+  }
+  .final-text   { color: var(--text); }
+  .interim-text { color: var(--interim); font-style: italic; }
+  .cursor {
+    display: inline-block; width: 2px; height: 1.1em;
+    background: var(--accent); margin-left: 3px;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .placeholder { color: var(--muted); font-size: 0.9rem; font-family: 'JetBrains Mono', monospace; }
+
+  .status-row { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; font-size: .7rem; color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.live  { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse .9s ease-in-out infinite; }
+  .dot.error { background: var(--danger); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .controls { display: flex; gap: .7rem; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: .5rem 1.2rem; border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: transparent; color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: .76rem; font-weight: 500; cursor: pointer;
+    transition: all .15s;
+  }
+  .btn:disabled { opacity: .35; cursor: not-allowed; }
+  .btn.go  { border-color: var(--green);  color: var(--green); }
+  .btn.go:not(:disabled):hover  { background: rgba(30,204,150,.08); }
+  .btn.end { border-color: var(--danger); color: var(--danger); }
+  .btn.end:not(:disabled):hover { background: rgba(224,92,92,.08); }
+  .btn.clr { border-color: var(--border); color: var(--muted); font-size: .7rem; }
+
+  .stats { display: flex; gap: 1.2rem; margin-top: .8rem; padding-top: .8rem; border-top: 1px solid var(--border); font-size: .68rem; color: var(--muted); flex-wrap: wrap; }
+  .stats span { color: var(--text); font-weight: 500; }
+
+  .warn-box { font-size: .7rem; color: #EF9F27; background: rgba(239,159,39,.08); border: 1px solid rgba(239,159,39,.25); border-radius: 8px; padding: .6rem .9rem; margin-top: .8rem; line-height: 1.7; display: none; }
+
+  #hist-card { display: none; }
+  .hist-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .6rem; }
+  #hist-list { display: flex; flex-direction: column; gap: .35rem; max-height: 180px; overflow-y: auto; }
+  .hitem {
+    font-family: 'Noto Sans Telugu', sans-serif;
+    font-size: .95rem; color: var(--muted);
+    padding: .4rem .65rem;
+    border-left: 2px solid var(--border);
+    line-height: 1.5;
+    transition: color .4s, border-color .4s;
+  }
+  .hitem.fresh { color: var(--text); border-left-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>తెలుగు లైవ్ సబ్‌టైటిల్స్</h1>
+  <p>Web Speech API · No duplicates · Mobile optimized</p>
+</header>
+
+<div class="card">
+  <div id="sub-box">
+    <span class="placeholder">Click Start and speak in Telugu...</span>
+  </div>
+  <div class="status-row">
+    <div class="dot" id="sdot"></div>
+    <span id="stext">Ready</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="controls">
+    <button class="btn go"  id="btnStart" onclick="startRec()">▶ Start</button>
+    <button class="btn end" id="btnStop"  onclick="stopRec()" disabled>■ Stop</button>
+    <button class="btn clr"               onclick="clearAll()">Clear</button>
+  </div>
+  <div class="stats">
+    Words: <span id="wN">0</span>
+    &nbsp; Segments: <span id="sN">0</span>
+    &nbsp; Duplicates blocked: <span id="dN">0</span>
+  </div>
+  <div class="warn-box" id="warnBox"></div>
+</div>
+
+<div class="card" id="hist-card">
+  <div class="hist-label">Transcript history</div>
+  <div id="hist-list"></div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let recog       = null;
+let running     = false;
+
+// FIX 1: Keep final sentences in an array — never re-append
+let finalSentences = [];
+
+// FIX 2: Track seen transcripts to block duplicates
+let seenTranscripts = new Set();
+
+// FIX 3: Track the last resultIndex so we only process NEW results
+let lastResultIndex = 0;
+
+let wordCount = 0, segCount = 0, dupCount = 0;
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+function setStatus(msg, cls) {
+  document.getElementById('stext').textContent = msg;
+  document.getElementById('sdot').className = 'dot' + (cls ? ' ' + cls : '');
+}
+
+function render(interimText = '') {
+  const box = document.getElementById('sub-box');
+  const finalHtml = finalSentences.length
+    ? `<span class="final-text">${finalSentences.join(' ')}</span>`
+    : '';
+  const interimHtml = interimText
+    ? `<span class="interim-text"> ${interimText}</span>`
+    : '';
+  const cursor = running ? '<span class="cursor"></span>' : '';
+  box.innerHTML = finalHtml + interimHtml + cursor
+    || '<span class="placeholder">Speak in Telugu...</span>';
+}
+
+function pushHistory(text) {
+  const card = document.getElementById('hist-card');
+  const list = document.getElementById('hist-list');
+  card.style.display = 'block';
+  const div = document.createElement('div');
+  div.className = 'hitem fresh';
+  div.textContent = text;
+  list.appendChild(div);
+  setTimeout(() => div.classList.remove('fresh'), 1800);
+  list.scrollTop = list.scrollHeight;
+  while (list.children.length > 60) list.removeChild(list.firstChild);
+}
+
+function updateStats() {
+  document.getElementById('wN').textContent = wordCount;
+  document.getElementById('sN').textContent = segCount;
+  document.getElementById('dN').textContent = dupCount;
+}
+
+function showWarn(msg) {
+  const b = document.getElementById('warnBox');
+  b.style.display = 'block';
+  b.textContent = msg;
+}
+
+// ── Core recognition logic ────────────────────────────────────────────────────
+function startRec() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showWarn('Web Speech API not supported. Use Chrome or Edge on desktop/Android.');
+    return;
+  }
+
+  recog = new SR();
+  recog.lang = 'te-IN';
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.maxAlternatives = 1;
+
+  // FIX 4: Reset resultIndex on every new session
+  lastResultIndex = 0;
+
+  recog.onstart = () => {
+    running = true;
+    setStatus('Listening — speak in Telugu', 'live');
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnStop').disabled  = false;
+    render();
+  };
+
+  recog.onresult = (e) => {
+    let interimText = '';
+
+    // FIX 2 (core): Only loop from e.resultIndex, not from 0
+    // e.resultIndex tells us which results are NEW this event
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const transcript = e.results[i][0].transcript.trim();
+
+      if (e.results[i].isFinal) {
+        // FIX 3: Deduplicate — check if we've seen this exact text before
+        const normalized = transcript.toLowerCase().replace(/\s+/g, ' ');
+        if (seenTranscripts.has(normalized)) {
+          dupCount++;
+          updateStats();
+          continue; // block the duplicate
+        }
+        seenTranscripts.add(normalized);
+
+        // FIX 1: Push to array, re-render whole thing cleanly
+        finalSentences.push(transcript);
+
+        // Keep rolling window — max 5 sentences visible
+        if (finalSentences.length > 5) finalSentences.shift();
+
+        wordCount += transcript.split(/\s+/).filter(Boolean).length;
+        segCount++;
+        updateStats();
+        pushHistory(transcript);
+
+        interimText = ''; // clear interim now that this is final
+
+      } else {
+        // Interim: just show, do NOT append to finalSentences
+        interimText += transcript;
+      }
+    }
+
+    render(interimText);
+  };
+
+  recog.onerror = (e) => {
+    if (e.error === 'no-speech') return; // ignore silence — common on mobile
+    if (e.error === 'aborted')  return; // we stopped it ourselves
+    setStatus('Error: ' + e.error, 'error');
+    showWarn(
+      e.error === 'not-allowed'
+        ? 'Microphone access denied. Please allow mic in browser settings.'
+        : e.error === 'network'
+        ? 'Network error. Check your internet connection.'
+        : 'Error: ' + e.error
+    );
+  };
+
+  recog.onend = () => {
+    // FIX 5: Auto-restart only if still running (don't re-render old text)
+    if (running) {
+      // Small delay before restart prevents rapid fire on mobile
+      setTimeout(() => {
+        if (running) {
+          try { recog.start(); } catch(_) {}
+        }
+      }, 200);
+    } else {
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnStop').disabled  = true;
+      setStatus('Stopped', '');
+      render();
+    }
+  };
+
+  recog.start();
+}
+
+function stopRec() {
+  running = false;
+  if (recog) {
+    recog.onend = null; // prevent auto-restart triggering
+    recog.stop();
+    recog = null;
+  }
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled  = true;
+  setStatus('Stopped', '');
+  render();
+}
+
+function clearAll() {
+  finalSentences  = [];
+  seenTranscripts = new Set();
+  lastResultIndex = 0;
+  wordCount = segCount = dupCount = 0;
+  updateStats();
+  document.getElementById('hist-card').style.display = 'none';
+  document.getElementById('hist-list').innerHTML = '';
+  document.getElementById('warnBox').style.display = 'none';
+  render();
+}
+</script>
+</body>
+</html>
